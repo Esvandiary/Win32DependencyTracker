@@ -58,14 +58,14 @@ namespace Win32DependencyTracker
             }
         }
 
-        public static async Task<APISymbolCache> Create(string path)
+        public static async Task<APISymbolCache> Create(string path, string zipPath)
         {
             Log.Debug("Creating new symbol cache database");
-            string zipPath = null;
-            if (File.Exists(LocalZipPath))
+            bool isUserZipFile = false;
+            if (!string.IsNullOrEmpty(zipPath) && File.Exists(zipPath))
             {
                 Log.Debug("Using existing local API docs ZIP");
-                zipPath = LocalZipPath;
+                isUserZipFile = true;
             }
             else
             {
@@ -108,7 +108,7 @@ namespace Win32DependencyTracker
             }
             finally
             {
-                if (zipPath != LocalZipPath)
+                if (!isUserZipFile)
                     File.Delete(zipPath);
             }
         }
