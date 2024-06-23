@@ -16,7 +16,6 @@ namespace Win32DependencyTracker
     class APISymbolCache : IDisposable
     {
         private static readonly string RepoURL = "https://github.com/MicrosoftDocs/sdk-api/archive/refs/heads/docs.zip";
-        private static readonly string LocalZipPath = "sdk-api-docs.zip";
 
         private APISymbolDB _conn;
 
