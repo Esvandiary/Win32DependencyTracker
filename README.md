@@ -1,6 +1,6 @@
 # Win32 Dependency Tracker
 
-The aim of this project is to track the likely minimum Windows version which a DLL should load successfully on, based on what DLLs (and functions within those DLLs) which will be imported by [load-time linking](https://learn.microsoft.com/en-us/windows/win32/dlls/load-time-dynamic-linking).
+The aim of this project is to track the likely minimum Windows version which an executable or DLL should load successfully on, based on what DLLs (and functions within those DLLs) will be imported by [load-time linking](https://learn.microsoft.com/en-us/windows/win32/dlls/load-time-dynamic-linking).
 
 ### Usage
 
