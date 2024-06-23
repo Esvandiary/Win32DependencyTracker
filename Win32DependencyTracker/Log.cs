@@ -10,6 +10,11 @@ namespace Win32DependencyTracker
     {
         public static bool Enabled { get; set; } = false;
 
+        public static void Error(string fmtstr, params object[] args)
+        {
+            Console.Error.WriteLine(fmtstr, args);
+        }
+
         public static void Debug(string fmtstr, params object[] args)
         {
             if (Enabled)

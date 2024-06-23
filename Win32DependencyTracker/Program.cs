@@ -38,7 +38,7 @@ namespace Win32DependencyTracker
             [Option("max-expected", Default = null)]
             public string MaxExpectedVersionOrBuild { get; set; }
 
-            [Value(0, Required = true)]
+            [Value(0, Required = false)]
             public string Path { get; set; }
         }
 
@@ -48,7 +48,7 @@ namespace Win32DependencyTracker
                 cfg.CaseInsensitiveEnumValues = true;
             });
             parser.ParseArguments<Options>(args)
-                .WithParsed((opts) => _ = RunProcess(opts))
+                .WithParsed((opts) => RunProcess(opts).Wait())
                 .WithNotParsed((errs) => OnCommandLineParseFailed(errs));
         }
 
@@ -106,19 +106,29 @@ namespace Win32DependencyTracker
         {
             Log.Enabled = options.Verbose;
 
+            bool hasSecondaryActions = (options.RebuildSymbolCache);
+
             Phlib.InitializePhLib();
             BinaryCache.InitializeBinaryCache(false);
-
-            string filename = options.Path;
-            if (!NativeFile.Exists(filename))
-            {
-                Log.Debug("Could not find file {0:s} on disk", filename);
-                return;
-            }
 
             var symbols = !options.RebuildSymbolCache && File.Exists("symbols.db")
                 ? await APISymbolCache.Load("symbols.db")
                 : await APISymbolCache.Create("symbols.db", options.APIDocZipPath);
+
+            string filename = options.Path;
+
+            if (string.IsNullOrEmpty(filename))
+            {
+                if (!hasSecondaryActions)
+                    Log.Error("No file specified!");
+                return;
+            }
+
+            if (!NativeFile.Exists(filename))
+            {
+                Log.Error("Could not find file {0:s} on disk", filename);
+                return;
+            }
 
             var dependencies = DependencyWalker.Walk(filename, (path) => !path.Contains("system32"));
             var flatDeps = DependencyWalker.Aggregate(dependencies);
@@ -190,7 +200,7 @@ namespace Win32DependencyTracker
                         Console.WriteLine($"Symbols above expected max OS {(hasMaxBuild ? $"build {maxBuild}" : $"version {maxVersion}")} ({unexpectedResults.Count}):");
                         PrintSymbolList(unexpectedResults);
                     }
-                    else
+                    else if (hasMaxVersion || hasMaxBuild)
                     {
                         Console.WriteLine();
                         Console.WriteLine($"No symbols found above expected max OS {(hasMaxBuild ? $"build {maxBuild}" : $"version {maxVersion}")}");
