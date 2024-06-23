@@ -64,7 +64,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <SpectreMitigation>false</SpectreMitigation>
     <UseDebugLibraries>true</UseDebugLibraries>
   </PropertyGroup>
@@ -155,7 +155,7 @@
     <Lib>
       <TargetMachine>MachineX64</TargetMachine>
       <AdditionalLibraryDirectories>..\tools\thirdparty\bin\$(Configuration)$(PlatformArchitecture);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>thirdparty.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
       <UseUnicodeResponseFiles>true</UseUnicodeResponseFiles>
     </Lib>
   </ItemDefinitionGroup>
