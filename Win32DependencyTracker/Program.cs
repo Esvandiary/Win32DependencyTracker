@@ -240,11 +240,10 @@ namespace Win32DependencyTracker
             int dlen = results.Max(t => t.DLLName.Length);
             int nlen = results.Max(t => t.Symbol.Length);
             int vlen = results.Max(t => t.Version.ToString().Length);
-            int blen = results.Max(t => t.Build.ToString().Length);
 
-            string fmtstr = $"    {{0,-{dlen + 3}}}{{1,-{nlen + 3}}}{{2,-{vlen + 3}}}{{3,-{blen + 3}}}{{4}}";
+            string fmtstr = $"    {{0,-{dlen + 3}}}{{1,-{nlen + 3}}}{{2,-{vlen + 3}}}{{3}}";
             foreach (var s in results)
-                Console.WriteLine(string.Format(fmtstr, s.DLLName, s.Symbol, s.Version.ToString(), s.Build.ToString(), s.BuildNumber));
+                Console.WriteLine(string.Format(fmtstr, s.DLLName, s.Symbol, s.Version.ToString(), $"{s.Build} ({s.BuildNumber})"));
         }
     }
 }
