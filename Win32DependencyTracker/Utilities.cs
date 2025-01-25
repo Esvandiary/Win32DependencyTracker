@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -20,5 +21,16 @@ namespace Win32DependencyTracker
         }
 
         public int GetHashCode(IEnumerable<T> arr) => arr.Aggregate(0, (init, val) => init ^ (val?.GetHashCode() ?? 0));
+    }
+
+    static class DLLName
+    {
+        public static string Normalise(string name)
+        {
+            name = Path.GetFileName(name).ToLowerInvariant();
+            if (name.EndsWith(".dll"))
+                name = name.Substring(0, name.Length - 4);
+            return name;
+        }
     }
 }
