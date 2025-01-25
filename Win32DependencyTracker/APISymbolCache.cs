@@ -189,14 +189,22 @@ namespace Win32DependencyTracker
                     using (var stream = entry.Open())
                     using (var reader = new StreamReader(stream))
                     {
-                        string content = reader.ReadToEnd();
-                        var lolreader = new StringReader(content);
+                        APIEntry api = null;
+                        try
+                        {
+                            string content = reader.ReadToEnd();
+                            using (var sreader = new StringReader(content))
+                                api = ReadAPIStream(sreader);
+                            if (!IsRelevantAPIEntry(api))
+                                continue;
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Debug("Failed to parse {0}: {1}", entry.Name, ex.Message);
+                        }
 
-                        var api = ReadAPIStream(lolreader);
-                        if (!IsRelevantAPIEntry(api))
-                            continue;
-
-                        yield return api;
+                        if (api != null)
+                            yield return api;
                     }
                 }
             }
