@@ -35,8 +35,11 @@ namespace Win32DependencyTracker
             [Option("api-doc-zip", Default = null)]
             public string APIDocZipPath { get; set; }
 
-            [Option("max-expected", Default = null)]
+            [Option("max-expected-version", Default = null)]
             public string MaxExpectedVersionOrBuild { get; set; }
+
+            [Option("disallowed-dlls", Separator = ',', Default = null)]
+            public IEnumerable<string> DisallowedDLLs { get; set; }
 
             [Value(0, Required = false)]
             public string Path { get; set; }
@@ -48,7 +51,7 @@ namespace Win32DependencyTracker
                 cfg.CaseInsensitiveEnumValues = true;
             });
             parser.ParseArguments<Options>(args)
-                .WithParsed((opts) => RunProcess(opts).Wait())
+                .WithParsed((opts) => RunProcessAsync(opts).Wait())
                 .WithNotParsed((errs) => OnCommandLineParseFailed(errs));
         }
 
@@ -99,12 +102,18 @@ namespace Win32DependencyTracker
             public List<APIVersionResult> MaxVersionSymbols { get; set; }
             [JsonProperty("unexpected_symbols")]
             public List<APIVersionResult> UnexpectedSymbols { get; set; }
+            [JsonProperty("disallowed_dll_symbols")]
+            public List<APIVersionResult> DisallowedDLLSymbols { get; set; }
+            [JsonProperty("missing_dependent_dlls")]
+            public List<string> MissingDependentDLLs { get; set; }
 
         }
 
-        static async Task RunProcess(Options options)
+        static async Task RunProcessAsync(Options options)
         {
             Log.Enabled = options.Verbose;
+
+            options.DisallowedDLLs = options.DisallowedDLLs?.Select(t => DLLName.Normalise(t)).ToList();
 
             bool hasSecondaryActions = (options.RebuildSymbolCache);
 
@@ -130,8 +139,9 @@ namespace Win32DependencyTracker
                 return;
             }
 
-            var dependencies = DependencyWalker.Walk(filename, (path) => !path.Contains("system32"));
+            var dependencies = DependencyWalker.Walk(filename, shouldRecurse: (path) => !path.Contains("system32"));
             var flatDeps = DependencyWalker.Aggregate(dependencies);
+            var missingDeps = DependencyWalker.GetMissingDLLs(dependencies);
 
             var results = new List<APIVersionResult>();
             foreach (var dependency in flatDeps)
@@ -142,7 +152,7 @@ namespace Win32DependencyTracker
                     results.Add(new APIVersionResult
                     {
                         DLLPath = dependency.DLLPath,
-                        DLLName = Path.GetFileName(dependency.DLLPath),
+                        DLLName = DLLName.Normalise(dependency.DLLPath),
                         Symbol = dependency.Function,
                         Version = apiResult.MinVersion,
                         VersionNumber = (int)apiResult.MinVersion,
@@ -157,18 +167,23 @@ namespace Win32DependencyTracker
                 var highVer = results.OrderByDescending(t => t.Version).ThenByDescending(t => t.Build).First();
                 var highSymbols = results.Where(t => t.Version == highVer.Version).ToList();
 
-                List<APIVersionResult> unexpectedResults = null;
+                List<APIVersionResult> unexpectedVersionResults = new List<APIVersionResult>();
+                List<APIVersionResult> disallowedDLLResults = new List<APIVersionResult>();
                 bool hasMaxVersion = Enum.TryParse<WindowsVersion>(options.MaxExpectedVersionOrBuild, out var maxVersion);
                 bool hasMaxBuild = Enum.TryParse<WindowsBuild>(options.MaxExpectedVersionOrBuild, out var maxBuild);
+                bool hasDisallowedDLLs = options.DisallowedDLLs?.Any() == true;
                 if (hasMaxBuild)
-                    unexpectedResults = results.Where(t => t.Build > maxBuild).ToList();
+                    unexpectedVersionResults = results.Where(t => t.Build > maxBuild).ToList();
                 else if (hasMaxVersion)
-                    unexpectedResults = results.Where(t => t.Version > maxVersion).ToList();
+                    unexpectedVersionResults = results.Where(t => t.Version > maxVersion).ToList();
 
-                if (unexpectedResults != null && unexpectedResults.Any())
-                    Environment.ExitCode = unexpectedResults.Count;
+                if (hasDisallowedDLLs)
+                    disallowedDLLResults = results.Where(t => options.DisallowedDLLs.Contains(t.DLLName)).ToList();
 
-                bool isOK = (unexpectedResults?.Any() != true);
+                bool isOK = !missingDeps.Any() && !unexpectedVersionResults.Any() && !disallowedDLLResults.Any();
+                if (!isOK)
+                    Environment.ExitCode = missingDeps.Count + unexpectedVersionResults.Count + disallowedDLLResults.Count;
+
                 if (options.Format == OutputFormat.JSON)
                 {
                     var apiResult = new OutputResult
@@ -180,7 +195,9 @@ namespace Win32DependencyTracker
                         BuildNumber = highVer.BuildNumber,
                         Symbols = results,
                         MaxVersionSymbols = highSymbols,
-                        UnexpectedSymbols = unexpectedResults ?? new List<APIVersionResult>(),
+                        UnexpectedSymbols = unexpectedVersionResults,
+                        DisallowedDLLSymbols = disallowedDLLResults,
+                        MissingDependentDLLs = missingDeps.ToList(),
                     };
                     var json = JsonConvert.SerializeObject(apiResult, Formatting.Indented);
                     Console.WriteLine(json);
@@ -196,14 +213,38 @@ namespace Win32DependencyTracker
                     PrintSymbolList(highSymbols);
                     if (!isOK)
                     {
-                        Console.WriteLine();
-                        Console.WriteLine($"Symbols above expected max OS {(hasMaxBuild ? $"build {maxBuild}" : $"version {maxVersion}")} ({unexpectedResults.Count}):");
-                        PrintSymbolList(unexpectedResults);
+                        if (missingDeps.Any())
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine($"Dependent DLLs could not be found ({missingDeps.Count}):");
+                            foreach (var name in missingDeps)
+                                Console.WriteLine($"    {name}");
+                        }
+                        if (unexpectedVersionResults.Any())
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine($"Symbols above expected max OS {(hasMaxBuild ? $"build {maxBuild}" : $"version {maxVersion}")} ({unexpectedVersionResults.Count}):");
+                            PrintSymbolList(unexpectedVersionResults);
+                        }
+                        if (disallowedDLLResults.Any())
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine($"Symbols from disallowed DLLs ({disallowedDLLResults.Count}):");
+                            PrintSymbolList(disallowedDLLResults);
+                        }
                     }
-                    else if (hasMaxVersion || hasMaxBuild)
+                    else if (hasMaxVersion || hasMaxBuild || hasDisallowedDLLs)
                     {
-                        Console.WriteLine();
-                        Console.WriteLine($"No symbols found above expected max OS {(hasMaxBuild ? $"build {maxBuild}" : $"version {maxVersion}")}");
+                        if (hasMaxVersion || hasMaxBuild)
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine($"No symbols found above expected max OS {(hasMaxBuild ? $"build {maxBuild}" : $"version {maxVersion}")}");
+                        }
+                        if (hasDisallowedDLLs)
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine($"No symbols found from disallowed DLLs");
+                        }
                     }
                 }
             }

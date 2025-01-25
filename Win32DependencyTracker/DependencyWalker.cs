@@ -2,9 +2,12 @@
 using Dependencies.ClrPh;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net.Configuration;
 using System.Text;
 using System.Threading.Tasks;
+using System.Web;
 
 namespace Win32DependencyTracker
 {
@@ -15,8 +18,15 @@ namespace Win32DependencyTracker
         private Dictionary<string, (PeImport Function, List<string[]> UsagePaths)> _usedFunctions
             = new Dictionary<string, (PeImport Function, List<string[]> UsagePaths)>();
 
-        public Dependencies(string path) => Path = path;
+        private Dependencies() { }
+        public static Dependencies ForName(string name)
+            => new Dependencies() { Name = name, Path = null };
+        public static Dependencies ForPath(string path)
+            => new Dependencies() { Name = System.IO.Path.GetFileName(path), Path = path };
+
+        public string Name { get; private set; }
         public string Path { get; private set; }
+        public bool IsFound => !string.IsNullOrEmpty(Path);
         public Dictionary<string, Dependencies> DirectDependencies { get; } = new Dictionary<string, Dependencies>();
         public string[] Functions { get => _usedFunctions.Keys.ToArray(); }
         public string[][] UsagePaths
@@ -38,11 +48,13 @@ namespace Win32DependencyTracker
 
         public void AddDirectDependency(Dependencies dep, string[] usagePath, IEnumerable<PeImport> usedFunctions)
         {
-            if (!DirectDependencies.ContainsKey(dep.Path))
-                DirectDependencies[dep.Path] = dep;
+            string key = dep.IsFound ? dep.Path : dep.Name;
+
+            if (!DirectDependencies.ContainsKey(key))
+                DirectDependencies[key] = dep;
 
             foreach (var fn in usedFunctions)
-                DirectDependencies[dep.Path].AddUsedFunction(fn, usagePath);
+                DirectDependencies[key].AddUsedFunction(fn, usagePath);
         }
     }
 
@@ -56,7 +68,7 @@ namespace Win32DependencyTracker
             if (cache.TryGetValue(filename, out Dependencies dependencies))
                 return dependencies;
 
-            dependencies = cache[filename] = new Dependencies(filename);
+            dependencies = cache[filename] = Dependencies.ForPath(filename);
 
             if (!shouldRecurse(filename))
                 return dependencies;
@@ -78,7 +90,10 @@ namespace Win32DependencyTracker
                 {
                     (var strategy, var path) = FindPe.FindPeFromDefault(pe, import.Name);
                     if (strategy == ModuleSearchStrategy.NOT_FOUND)
+                    {
+                        dependencies.AddDirectDependency(Dependencies.ForName(import.Name), currentPath.ToArray(), import.ImportList);
                         continue;
+                    }
 
                     if (!cache.TryGetValue(path, out Dependencies childDeps))
                         childDeps = WalkInternal(path, shouldRecurse, currentPath, cache);
@@ -94,6 +109,22 @@ namespace Win32DependencyTracker
             }
         }
 
+        public static HashSet<string> GetMissingDLLs(Dependencies root)
+        {
+            var result = new HashSet<string>();
+            GetMissingDLLsInternal(root, result);
+            return result;
+        }
+
+        private static void GetMissingDLLsInternal(Dependencies deps, HashSet<string> result)
+        {
+            if (!deps.IsFound)
+                result.Add(deps.Name);
+
+            foreach (var child in deps.DirectDependencies.Values)
+                GetMissingDLLsInternal(child, result);
+        }
+
         public static HashSet<(string DLLPath, string Function)> Aggregate(Dependencies root)
         {
             var result = new HashSet<(string DLLPath, string Function)>();
@@ -103,8 +134,10 @@ namespace Win32DependencyTracker
 
         private static void AggregateInternal(Dependencies deps, HashSet<(string DLLPath, string Function)> state)
         {
+            var key = deps.IsFound ? deps.Path : deps.Name;
+
             foreach (var fn in deps.Functions)
-                state.Add((deps.Path, fn));
+                state.Add((key, fn));
 
             foreach (var child in deps.DirectDependencies.Values)
                 AggregateInternal(child, state);
